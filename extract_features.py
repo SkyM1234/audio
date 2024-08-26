@@ -28,7 +28,7 @@ audio_folder = "E:/pythonprojects/PythonProject5/Speech-Emotion-Recognition-yyzc
 audio_files = glob.glob(os.path.join(audio_folder, "*.wav")) # 可以添加其他音频格式
 
 # 提取所有音频文件的特征
-features_list_pt = []
+features_list_wav = []
 features_list_mfcc = []
 
 for audio_file in audio_files:
@@ -47,8 +47,8 @@ for audio_file in audio_files:
     waveform = pre_emphasis(waveform)
     
     # 分割音频
-    # 1.pt
-    wave_seg_pt = []
+    # 1.wav
+    wave_seg_wav = []
     
     segment_size = 300
     time_wav = waveform.shape[1]
@@ -59,14 +59,14 @@ for audio_file in audio_files:
     for i in range(num_segs):
         if end_wav > time_wav:
             padding = (0, end_wav-time_wav)
-            wave_seg_pt.append(F.pad(waveform[:, start_wav:time_wav], pad=padding, mode='constant', value=0))
+            wave_seg_wav.append(F.pad(waveform[:, start_wav:time_wav], pad=padding, mode='constant', value=0))
             break
-        wave_seg_pt.append(waveform[:, start_wav:end_wav])
+        wave_seg_wav.append(waveform[:, start_wav:end_wav])
         start_wav = start_wav + segment_size_wav
         end_wav = end_wav + segment_size_wav
 
-    wave_seg_pt = torch.stack(wave_seg_pt)
-    features_list_pt.append(wave_seg_pt)
+    wave_seg_wav = torch.stack(wave_seg_wav)
+    features_list_wav.append(wave_seg_wav)
 
     # 2.mfcc
     wave_seg_mfcc = []
@@ -99,13 +99,15 @@ for audio_file in audio_files:
     wave_seg_mfcc = torch.stack(wave_seg_mfcc)
     features_list_mfcc.append(wave_seg_mfcc)
 
-features_tensor_pt = torch.vstack(features_list_pt) # [num_segs, 1, segment_size_wav]
-features_tensor_pt = features_tensor_pt.squeeze(1) # [num_segs, segment_size_wav]
+features_tensor_wav = torch.vstack(features_list_wav) # [num_segs, 1, segment_size_wav]
+features_tensor_wav = features_tensor_wav.squeeze(1) # [num_segs, segment_size_wav]
 
 features_tensor_mfcc = torch.vstack(features_list_mfcc).permute(0, 2, 1) # [num_segs, segment_size, n_mfcc]
 
-print(features_tensor_pt.shape)
+print(features_tensor_wav.shape)
 print(features_tensor_mfcc.shape)
+
+
 
 
 # 获取特征
