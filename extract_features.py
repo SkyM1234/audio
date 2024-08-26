@@ -1,17 +1,5 @@
-# import librosa
-# import numpy as np
-# from transformers import Wav2Vec2FeatureExtractor
- 
-# processor =  Wav2Vec2FeatureExtractor.from_pretrained("E:/pythonprojects/PythonProject5/CA-MSER-main/CA-MSER-main/features_extraction/chinese_pretrain_model/")
- 
- 
- 
-# wav_path = r'E:/pythonprojects/PythonProject5/Speech-Emotion-Recognition-yyzcjl/Speech-Emotion-Recognition-yyzcjl/yyzcjl/jl/0c08101116jl0f1.wav'
-# speech_array, sampling_rate = librosa.load(wav_path, sr=16000)
-# input_values = np.squeeze(processor(speech_array, sampling_rate=16000).input_values)
-# print(input_values.shape)
- 
 import torchaudio
+import torchaudio.transforms as transforms
 from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2ForPreTraining, Wav2Vec2Model
 import torch
 from torch.nn import functional as F
@@ -20,15 +8,18 @@ import glob
 import numpy as np
 import math
 
+# 定义预强调滤波器
+def pre_emphasis(waveform, emphasis_coeff=0.97):
+    return torch.cat((waveform[:, :1], waveform[:, 1:] - emphasis_coeff * waveform[:, :-1]), dim=1)
 # 加载 Wav2Vec 2.0 模型
-model_name = "E:/pythonprojects/PythonProject5/CA-MSER-main/CA-MSER-main/features_extraction/chinese_pretrain_model/"  # 可以选择不同的模型
-feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_name)
-model = Wav2Vec2Model.from_pretrained(model_name)
+# model_name = "E:/pythonprojects/PythonProject5/CA-MSER-main/CA-MSER-main/features_extraction/c hinese_pretrain_model/"  # 可以选择不同的模型
+# feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_name)
+# model = Wav2Vec2Model.from_pretrained(model_name)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # model = model.half()
-model = model.to(device)
-model.eval()
+# model = model.to(device)
+# model.eval()
 
 # 设置音频文件夹路径
 audio_folder = "E:/pythonprojects/PythonProject5/Speech-Emotion-Recognition-yyzcjl/Speech-Emotion-Recognition-yyzcjl/yyzcjl/jl"  # 替换为你的音频文件夹路径
@@ -37,7 +28,8 @@ audio_folder = "E:/pythonprojects/PythonProject5/Speech-Emotion-Recognition-yyzc
 audio_files = glob.glob(os.path.join(audio_folder, "*.wav")) # 可以添加其他音频格式
 
 # 提取所有音频文件的特征
-features_list = []
+features_list_pt = []
+features_list_mfcc = []
 
 for audio_file in audio_files:
 # 打印正在处理的文件
@@ -51,8 +43,12 @@ for audio_file in audio_files:
         resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=16000)
         waveform = resampler(waveform)
     
+    # 预强调滤波器
+    waveform = pre_emphasis(waveform)
+    
     # 分割音频
-    wave_seg = []
+    # 1.pt
+    wave_seg_pt = []
     
     segment_size = 300
     time_wav = waveform.shape[1]
@@ -63,30 +59,61 @@ for audio_file in audio_files:
     for i in range(num_segs):
         if end_wav > time_wav:
             padding = (0, end_wav-time_wav)
-            wave_seg.append(F.pad(waveform[:, start_wav:time_wav], pad=padding, mode='constant', value=0))
+            wave_seg_pt.append(F.pad(waveform[:, start_wav:time_wav], pad=padding, mode='constant', value=0))
             break
-        wave_seg.append(waveform[:, start_wav:end_wav])
+        wave_seg_pt.append(waveform[:, start_wav:end_wav])
         start_wav = start_wav + segment_size_wav
         end_wav = end_wav + segment_size_wav
 
-    wave_seg = torch.stack(wave_seg)
-    features_list.append(wave_seg)
+    wave_seg_pt = torch.stack(wave_seg_pt)
+    features_list_pt.append(wave_seg_pt)
 
-features_tensor = torch.vstack(features_list) # [num_segs, 1, segment_size_wav]
-features_tensor = features_tensor.squeeze(1) # [num_segs, segment_size_wav]
+    # 2.mfcc
+    wave_seg_mfcc = []
+
+    win_length = 512 
+    hop_length = 160 
+    n_fft = 512 
+    n_mels = 64 # 128 The value for `n_mels` (128) may be set too high
+    n_mfcc = 40
+
+    mfcc_transform = transforms.MFCC(
+    sample_rate=sample_rate,
+    n_mfcc=n_mfcc,  # MFCC特征的维度，通常为13或40
+    melkwargs={"win_length": win_length, "n_fft": n_fft, "hop_length": hop_length, "n_mels": n_mels} 
+    )
+    
+    mfcc = mfcc_transform(waveform).squeeze(0) # 提取 MFCC 特征
+
+    time_mfcc = mfcc.shape[1]
+    start_mfcc, end_mfcc = 0, segment_size
+    for i in range(num_segs):
+        if end_mfcc > time_mfcc:
+            padding = (0, end_mfcc-time_mfcc)
+            wave_seg_mfcc.append(F.pad(mfcc[:, start_mfcc:time_mfcc], pad=padding, mode='constant', value=0))
+            break
+        wave_seg_mfcc.append(mfcc[:, start_mfcc:end_mfcc])
+        start_mfcc = start_mfcc + segment_size
+        end_mfcc = end_mfcc + segment_size
+
+    wave_seg_mfcc = torch.stack(wave_seg_mfcc)
+    features_list_mfcc.append(wave_seg_mfcc)
+
+features_tensor_pt = torch.vstack(features_list_pt) # [num_segs, 1, segment_size_wav]
+features_tensor_pt = features_tensor_pt.squeeze(1) # [num_segs, segment_size_wav]
+
+features_tensor_mfcc = torch.vstack(features_list_mfcc).permute(0, 2, 1) # [num_segs, segment_size, n_mfcc]
+
+print(features_tensor_pt.shape)
+print(features_tensor_mfcc.shape)
 
 
 # 获取特征
-with torch.no_grad():
-    features = model(features_tensor.to(device)).last_hidden_state
+# with torch.no_grad():
+#     features = model(features_tensor.to(device)).last_hidden_state
 
-print(features.shape)
+# print(features.shape)
 
-# y, fs = librosa.load('E:/pythonprojects/PythonProject5/Speech-Emotion-Recognition-yyzcjl/Speech-Emotion-Recognition-yyzcjl/yyzcjl/jl/0c08101116jl0f1.wav', sr=16000) 
-# win_length = 512 
-# hop_length = 160 
-# n_fft = 512 
-# n_mels = 128 
-# n_mfcc = 20 
-# mfcc = librosa.feature.mfcc(y=y, sr=fs, win_length=win_length, hop_length=hop_length, n_fft=n_fft, n_mels=n_mels, dct_type=1) # 特征值增加差分量 # 一阶差分 mfcc_deta = librosa.feature.delta(mfcc)
-# print(mfcc.shape)
+# waveform, sample_rate = torchaudio.load('E:/pythonprojects/PythonProject5/Speech-Emotion-Recognition-yyzcjl/Speech-Emotion-Recognition-yyzcjl/yyzcjl/jl/0c08101116jl0f1.wav') 
+# waveform = pre_emphasis(waveform)
+# segment_size = 300
