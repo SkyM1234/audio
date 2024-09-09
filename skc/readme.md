@@ -1,1 +1,3 @@
-
+先用extract_features.py分别提取3个分类的特征
+再用merge_features.py合并特征
+最后使用train.py训练,test.py测试
